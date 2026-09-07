@@ -4,37 +4,41 @@
 #include "RefrigeratedShipping.h"
 #include "Exceptions.h"
 
-#include <cstdio>
 #include <iostream>
 #include <string>
 
 namespace {
-
-void printManifest(const std::string& title, CargoIterator& it) {
-    std::cout << "-- " << title << " --\n";
-    int count = 0;
-    while (it.hasNext()) {
-        Shippable* item = it.next();
-        std::printf("  %-60s weight=%7.2fkg  cost=$%7.2f%s\n",
-                    item->getName().c_str(),
-                    item->getWeight(),
-                    item->getCost(),
-                    item->isHazardous() ? "  [HAZMAT]" : "");
-        ++count;
+    std::string padRight(const std::string& s, std::string::size_type width) {
+        std::string padded = s;
+        while (padded.size() < width) padded += ' ';
+        return padded;
     }
-    std::cout << "  (" << count << " item(s) in this manifest)\n\n";
-}
 
-template <typename ActionFunc>
-void tryTransition(const std::string& label, ActionFunc action) {
-    try {
-        action();
-        std::cout << "  OK: " << label << "\n";
-    } catch (const InvalidStateTransition& ex) {
-        std::cout << "  REJECTED (" << label << "): " << ex.what() << "\n";
+    void printManifest(const std::string& title, CargoIterator& it) {
+        std::cout << "-- " << title << " --\n";
+        std::cout << std::fixed;
+        std::cout.precision(2);
+        int count = 0;
+        while (it.hasNext()) {
+            Shippable* item = it.next();
+            std::cout << "  " << padRight(item->getName(), 48)
+                    << " weight=" << item->getWeight() << "kg"
+                    << "  cost=$" << item->getCost()
+                    << (item->isHazardous() ? "  [HAZMAT]" : "") << "\n";
+            ++count;
+        }
+        std::cout << "  (" << count << " item(s) in this manifest)\n\n";
     }
-}
 
+    template <typename ActionFunc>
+    void tryTransition(const std::string& label, ActionFunc action) {
+        try {
+            action();
+            std::cout << "  OK: " << label << "\n";
+        } catch (const InvalidStateTransition& ex) {
+            std::cout << "  REJECTED (" << label << "): " << ex.what() << "\n";
+        }
+    }
 }
 
 int main() {
@@ -66,6 +70,31 @@ int main() {
 
     root->addItem(containerA);
     root->addItem(containerB);
+
+    std::cout << "### Scenario 1: manifests and lifecycle ###\n\n";
+
+    {
+        CargoIterator* full = root->createFullIterator();
+        printManifest("Full manifest (FullInventoryIterator)", *full);
+        delete full;
+    }
+    
+    {
+        CargoIterator* hazmat = root->createHazardousIterator();
+        printManifest("Dangerous goods only (HazardousMaterialsIterator)", *hazmat);
+        delete hazmat;
+    }
+
+    std::cout << "Driving BX-1001 through its lifecycle (state: " << box1->getStateName() << ")\n";
+    tryTransition("load onto truck", [&]() { box1->loadOntoTruck(); });
+    std::cout << "  now: " << box1->getStateName() << "\n";
+    tryTransition("load onto truck again (invalid)", [&]() { box1->loadOntoTruck(); });
+    tryTransition("arrive at customs", [&]() { box1->arriveAtCustoms(); });
+    std::cout << "  now: " << box1->getStateName() << "\n";
+    tryTransition("clear customs", [&]() { box1->clearCustoms(); });
+    std::cout << "  now: " << box1->getStateName() << "\n";
+    tryTransition("clear customs again (invalid, already delivered)", [&]() { box1->clearCustoms(); });
+    std::cout << "\n";
 
     delete root;
 

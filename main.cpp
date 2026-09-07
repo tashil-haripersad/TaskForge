@@ -1,3 +1,10 @@
+// TaskForge - Hierarchical Work Processing, instantiated as a logistics and
+// shipping system
+
+// Drives two runtime scenarios that exercise Composite, Iterator, 
+// State and Decorator together, including a documented structural/decoration 
+// change made while a traversal is in progress
+
 #include "Box.h"
 #include "ShippingContainer.h"
 #include "InsuredShipping.h"
@@ -8,6 +15,7 @@
 #include <string>
 
 namespace {
+    // Right-pads a copy of s with spaces up to at least width characters wide
     std::string padRight(const std::string& s, std::string::size_type width) {
         std::string padded = s;
         while (padded.size() < width) padded += ' ';
@@ -30,6 +38,7 @@ namespace {
         std::cout << "  (" << count << " item(s) in this manifest)\n\n";
     }
 
+    // Template that performs one lifecycle action and may throw InvalidStateTransition
     template <typename ActionFunc>
     void tryTransition(const std::string& label, ActionFunc action) {
         try {
@@ -46,6 +55,17 @@ int main() {
     std::cout << " TaskForge: Logistics & Shipping\n";
     std::cout << "==================================================\n\n";
 
+    // Build the hierarchy:
+    //   root (Global Shipment)
+    //     |- Container MSCU-1122                                           (level 1)
+    //     |    |- Pallet A1                                                (level 2)
+    //     |    |    |- BX-1001 Electronics Crate                           (level 3, leaf)
+    //     |    |    |- BX-1002 Industrial Chemicals                        (level 3, leaf, hazardous)
+    //     |    | Pallet A2                                                 (level 2)
+    //     |         |- BX-1003 Frozen Seafood, Refrigerated+Insured        (level 3, leaf)
+    //     |- Container MSCU-2233                                           (level 1)
+    //          |- BX-2001 Lithium Batteries                                (level 2, leaf, hazardous)
+    
     ShippingContainer* root = new ShippingContainer("Global Shipment GS-01");
 
     ShippingContainer* containerA = new ShippingContainer("Container MSCU-1122");
@@ -59,6 +79,10 @@ int main() {
     palletA1->addItem(box1);
     palletA1->addItem(new Box("BX-1002 Industrial Chemicals", 80.0, 500.0, true));
 
+    // Stack two decorators on box3: refrigeration first, then insurance on
+    // top of that - decorators compose in either order, and the result is
+    // still a plain Shippable to everything else in the system. Ownership
+    // chains: InsuredShipping owns RefrigeratedShipping owns box3
     Shippable* decoratedBox3 = new RefrigeratedShipping(box3, -18.0);
     decoratedBox3 = new InsuredShipping(decoratedBox3, 75.0);
     palletA2->addItem(decoratedBox3);
@@ -71,6 +95,9 @@ int main() {
     root->addItem(containerA);
     root->addItem(containerB);
 
+    // Scenario 1: inspect the hierarchy with two independent traversals,
+    // then move a box through its lifecycle, handling invalid transitions
+    // sensibly instead of crashing or silently ignoring them
     std::cout << "### Scenario 1: manifests and lifecycle ###\n\n";
 
     {
@@ -96,8 +123,13 @@ int main() {
     tryTransition("clear customs again (invalid, already delivered)", [&]() { box1->clearCustoms(); });
     std::cout << "\n";
 
+    // Scenario 2: runtime structural and decoration changes, and what they
+    // mean for a traversal that is already in progress when they happen
     std::cout << "### Scenario 2: runtime changes vs. an in-flight traversal ###\n\n";
 
+    // Start an iterator BEFORE making any changes, and partially consume it,
+    // simulating a traversal that is genuinely "in progress" while the
+    // hierarchy underneath it is mutated by other code
     CargoIterator* inFlight = root->createFullIterator();
     std::cout << "Started an iterator before making changes. First item seen: "
               << (inFlight->hasNext() ? inFlight->next()->getName() : std::string("<none>")) << "\n\n";
@@ -139,6 +171,8 @@ int main() {
     std::cout << "Total shipment weight: " << root->getWeight() << "kg, total cost: $"
               << root->getCost() << "\n";
 
+    // Recursively destroys containerA, containerB, both pallets, every Box
+    // and decorator in the tree - see ShippingContainer::~ShippingContainer
     delete root;
 
     return 0;

@@ -49,9 +49,9 @@ useful, not just a textbook excuse for polymorphism.
 
 | Participant | Role in TaskForge |
 |---|---|
-| Component (abstract) | `Shippable` |
-| Leaf (concrete) | `Box` |
-| Composite (concrete) | `ShippingContainer` |
+| Component | `Shippable` |
+| Leaf | `Box` |
+| Composite | `ShippingContainer` |
 | Client | `main.cpp` |
 
 `ShippingContainer::getWeight()` / `getCost()` sum over their children,
@@ -62,10 +62,10 @@ child is accessed only through the `Shippable` interface.
 
 | Participant | Role in TaskForge |
 |---|---|
-| Aggregate (abstract) | `CargoAggregate` |
-| ConcreteAggregate (concrete) | `ShippingContainer` |
-| Iterator (abstract) | `CargoIterator` |
-| ConcreteIterator (concrete) | `FullInventoryIterator`, `HazardousMaterialsIterator` |
+| Aggregate | `CargoAggregate` |
+| ConcreteAggregate | `ShippingContainer` |
+| Iterator | `CargoIterator` |
+| ConcreteIterator | `FullInventoryIterator`, `HazardousMaterialsIterator` |
 
 Both concrete iterators are built from the same `Shippable::collectLeaves`
 traversal hook, but apply a different **selection rule**:
@@ -79,9 +79,9 @@ position counter — they share no mutable state.
 
 | Participant | Role in TaskForge |
 |---|---|
-| Context (concrete) | `Box` |
-| State (abstract) | `BoxState` |
-| ConcreteState (concrete) | `InWarehouseState`, `InTransitState`, `CustomsClearanceState`, `DeliveredState` |
+| Context | `Box` |
+| State | `BoxState` |
+| ConcreteState | `InWarehouseState`, `InTransitState`, `CustomsClearanceState`, `DeliveredState` |
 
 `Box` never contains an `if (state == ...)` chain: it just forwards
 `loadOntoTruck()` / `arriveAtCustoms()` / `clearCustoms()` to whichever
@@ -94,10 +94,10 @@ handling" the brief asks for, rather than a silent no-op or a crash.
 
 | Participant | Role in TaskForge |
 |---|---|
-| Component (abstract) | `Shippable` |
-| ConcreteComponent (concrete) | `Box` |
-| Decorator (abstract) | `ShippableDecorator` |
-| ConcreteDecorator (concrete) | `InsuredShipping`, `RefrigeratedShipping` |
+| Component | `Shippable` |
+| ConcreteComponent | `Box` |
+| Decorator | `ShippableDecorator` |
+| ConcreteDecorator | `InsuredShipping`, `RefrigeratedShipping` |
 
 `ShippableDecorator` forwards every `Shippable` operation to the object it
 wraps by default; each concrete decorator overrides only what it changes

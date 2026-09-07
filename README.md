@@ -1,4 +1,4 @@
-# TaskForge - Logistics & Shipping
+# TaskForge — Logistics & Shipping
 
 A C++11 implementation of the TaskForge hierarchical work-processing brief,
 instantiated in the **logistics & shipping** domain.

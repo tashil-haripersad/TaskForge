@@ -1,10 +1,7 @@
-# TaskForge — Logistics & Shipping
+# TaskForge - Logistics & Shipping
 
 A C++11 implementation of the TaskForge hierarchical work-processing brief,
-instantiated in the **logistics & shipping** domain. This covers Tasks 1–3
-(the design write-up below stands in for the UML class diagram, which was
-not required for this submission) and leaves the system in a state ready
-for the Task 4 diagram portfolio and Task 5 debugging investigation.
+instantiated in the **logistics & shipping** domain.
 
 ## Building and running
 
@@ -23,8 +20,7 @@ A typical memory check, once inside the supplied Docker environment:
 valgrind --leak-check=full --show-leak-kinds=all ./taskforge
 ```
 
-Ownership is managed manually with raw pointers rather than smart pointers
-(no `<memory>`/`unique_ptr` anywhere in the project). Every class that owns
+Ownership is managed manually with raw pointers. Every class that owns
 something defines an explicit destructor that deletes it, and disables
 copying (`= delete` on the copy constructor and copy assignment operator) so
 two objects can never end up thinking they own the same resource — see
@@ -164,7 +160,7 @@ which is a traversal-support hook rather than a general-purpose accessor —
 a `ShippingContainer` recurses into its children, a `Box` or
 `ShippableDecorator` appends itself, and neither exposes storage.
 
-## 5. Traversal-modification policy (Task 3)
+## 5. Traversal-modification policy
 
 **Policy: snapshot iteration.** Both `FullInventoryIterator` and
 `HazardousMaterialsIterator` compute their full sequence of `Shippable*`
@@ -192,29 +188,28 @@ Consequences, demonstrated in `main.cpp` Scenario 2:
   short-lived, throwaway objects here rather than long-lived cursors into
   live container state.
 
-## 6. Where this leaves Tasks 4 and 5
+## 6. Object, State, and Activity Diagrams
 
-- **Task 4 (diagrams):** the class diagram follows directly from the
-  headers in this directory; the participant tables above map 1:1 onto it.
-  A meaningful object diagram is the tree built at the top of `main()`
-  (`GS-01` → two containers → pallets/boxes, with the two stacked
-  decorators around `BX-1003` shown as wrapper objects). The state diagram
-  is the four `BoxState` classes and the transition methods in
-  `BoxState.cpp`. Good activity-diagram candidates from this program:
-  printing a manifest (traversal made visible, with a loop over
-  `hasNext()`/`next()`), driving a box through its lifecycle (decisions and
-  guards, including the rejected-transition branches), and the Scenario 2
-  re-consolidation workflow (fork/join between the structural change and
-  the decoration change, both merging back before the "after" manifests are
-  printed).
-- **Task 5 (GDB/Valgrind):** because every owning class pairs its `new`
-  calls with an explicit `delete` in its destructor (or in `setState`,
-  for the one case where an owned object is replaced rather than only
-  released), copying is disabled everywhere ownership exists, and every
-  polymorphic base has a virtual destructor, a `valgrind --leak-check=full`
-  run against `./taskforge` is expected to report zero leaks and zero
-  invalid frees. Good GDB breakpoints for the investigation: `BoxState.cpp` 
-  transition functions (to step through   exactly which concrete state 
-  handles a given call and inspect `box`'s   fields), and 
-  `FullInventoryIterator`'s constructor (to inspect the  snapshot vector 
-  being built and confirm its contents before any later  structural change).
+The class diagram follows directly from the headers in this directory; the 
+participant tables above map 1:1 onto it. A meaningful object diagram is the 
+tree built at the top of `main()` (`GS-01` → two containers → pallets/boxes, 
+with the two stacked decorators around `BX-1003` shown as wrapper objects). 
+The state diagram is the four `BoxState` classes and the transition methods 
+in `BoxState.cpp`. Good activity-diagram candidates from this program: 
+printing a manifest (traversal made visible, with a loop over `hasNext()`/`next()`), 
+driving a box through its lifecycle (decisions and guards, including the 
+rejected-transition branches), and the Scenario 2 re-consolidation workflow 
+(fork/join between the structural change and the decoration change, both merging 
+back before the "after" manifests are printed).
+
+## 7. GDB/Valgrind
+Every owning class pairs its `new` calls with an explicit `delete` in its 
+destructor (or in `setState`, for the one case where an owned object is 
+replaced rather than only released), copying is disabled everywhere ownership 
+exists, and every polymorphic base has a virtual destructor, a 
+`valgrind --leak-check=full` run against `./taskforge` is expected to report 
+zero leaks and zero invalid frees. Good GDB breakpoints for the investigation: 
+`BoxState.cpp` transition functions (to step through exactly which concrete state 
+handles a given call and inspect `box`'s fields), and `FullInventoryIterator`'s 
+constructor (to inspect the snapshot vector being built and confirm its contents 
+before any later structural change).

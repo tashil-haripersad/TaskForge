@@ -96,6 +96,49 @@ int main() {
     tryTransition("clear customs again (invalid, already delivered)", [&]() { box1->clearCustoms(); });
     std::cout << "\n";
 
+    std::cout << "### Scenario 2: runtime changes vs. an in-flight traversal ###\n\n";
+
+    CargoIterator* inFlight = root->createFullIterator();
+    std::cout << "Started an iterator before making changes. First item seen: "
+              << (inFlight->hasNext() ? inFlight->next()->getName() : std::string("<none>")) << "\n\n";
+
+    std::cout << "(structural change) Re-consolidating cargo: moving BX-2001 from Container "
+                 "MSCU-2233 into Pallet A1, and receiving a new box directly into MSCU-2233...\n";
+    Shippable* movedBox = containerB->releaseItem("BX-2001 Lithium Batteries");
+    if (movedBox) palletA1->addItem(movedBox);
+    containerB->addItem(new Box("BX-2002 Spare Parts", 10.0, 50.0, false));
+
+    std::cout << "(decoration change) Re-wrapping BX-1002 with insurance after a hazard review...\n";
+    Shippable* hazBox = palletA1->releaseItem("BX-1002 Industrial Chemicals");
+    if (hazBox) {
+        hazBox = new InsuredShipping(hazBox, 150.0);
+        palletA1->addItem(hazBox);
+    }
+    std::cout << "\n";
+
+    std::cout << "Finishing the traversal that started BEFORE the changes above:\n";
+    int remainingBefore = 0;
+    while (inFlight->hasNext()) { inFlight->next(); ++remainingBefore; }
+    std::cout << "  " << remainingBefore
+              << " more item(s) were left in the OLD snapshot -- it still reflects the "
+                 "hierarchy exactly as it was when it was created, unaffected by the later "
+                 "moves, additions, and re-decoration.\n\n";
+    delete inFlight;
+
+    {
+        CargoIterator* afterFull = root->createFullIterator();
+        printManifest("Full manifest AFTER changes (freshly created iterator)", *afterFull);
+        delete afterFull;
+    }
+    {
+        CargoIterator* afterHazmat = root->createHazardousIterator();
+        printManifest("Dangerous goods AFTER changes", *afterHazmat);
+        delete afterHazmat;
+    }
+
+    std::cout << "Total shipment weight: " << root->getWeight() << "kg, total cost: $"
+              << root->getCost() << "\n";
+
     delete root;
 
     return 0;

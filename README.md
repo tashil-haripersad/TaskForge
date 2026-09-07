@@ -202,14 +202,165 @@ rejected-transition branches), and the Scenario 2 re-consolidation workflow
 (fork/join between the structural change and the decoration change, both merging 
 back before the "after" manifests are printed).
 
-## 7. GDB/Valgrind
-Every owning class pairs its `new` calls with an explicit `delete` in its 
-destructor (or in `setState`, for the one case where an owned object is 
-replaced rather than only released), copying is disabled everywhere ownership 
-exists, and every polymorphic base has a virtual destructor, a 
-`valgrind --leak-check=full` run against `./taskforge` is expected to report 
-zero leaks and zero invalid frees. Good GDB breakpoints for the investigation: 
-`BoxState.cpp` transition functions (to step through exactly which concrete state 
-handles a given call and inspect `box`'s fields), and `FullInventoryIterator`'s 
-constructor (to inspect the snapshot vector being built and confirm its contents 
-before any later structural change).
+## 7. Debugging and Memory Investigation
+
+Built with:
+
+```
+g++ -std=c++11 -Wall -Wextra -g -c <each .cpp> -o <each .o>
+g++ -std=c++11 -Wall -Wextra -g -o taskforge <all .o>
+```
+
+`-Wall -Wextra` produced zero warnings.
+
+---
+
+## GDB evidence: breakpoints, stepping, and state inspection
+
+Breakpoint on `FullInventoryIterator`'s constructor, stepping through the recursive `collectLeaves` call that builds its snapshot vector.
+
+```
+(gdb) break FullInventoryIterator::FullInventoryIterator
+(gdb) run
+Breakpoint 1, FullInventoryIterator::FullInventoryIterator (this=0x555555577820, root=...) at FullInventoryIterator.cpp:4
+4       FullInventoryIterator::FullInventoryIterator(ShippingContainer& root) : position_(0) {
+(gdb) print root.getName()
+$1 = "Global Shipment GS-01"
+(gdb) next
+5           root.collectLeaves(items_);
+(gdb) print items_.size()
+$2 = 0
+(gdb) next
+6       }
+(gdb) print items_.size()
+$3 = 4
+(gdb) print items_[0]->getName()
+$4 = "BX-1001 Electronics Crate"
+(gdb) print items_[1]->getName()
+$5 = "BX-1002 Industrial Chemicals"
+(gdb) print items_[2]->getName()
+$6 = "BX-1003 Frozen Seafood [Refrigerated @ -18C] [Insured]"
+(gdb) print items_[3]->getName()
+$7 = "BX-2001 Lithium Batteries"
+```
+
+`items_` is empty (`size() == 0`) immediately before the call to `collectLeaves`, and contains exactly four pointers immediately after. This confirms the snapshot is built once, at construction time, by recursing through the Composite structure (`ShippingContainer::collectLeaves` recursing into children, each `Box`/`ShippableDecorator` appending itself).
+
+---
+
+## A genuine bug: symptom, cause, debugging evidence, correction
+
+### Symptom
+
+The line that frees the previous `BoxState` before installing the new one was missing from `Box::setState`:
+
+```cpp
+// buggy version
+void Box::setState(BoxState* newState) {
+    // delete state_;   <-- missing
+    state_ = newState;
+}
+```
+
+The program's output was completely unaffected: `./taskforge` printed byte-for-byte the same manifests, lifecycle transitions, and totals as the correct version. The only way to catch it was memory instrumentation:
+
+```
+==973== HEAP SUMMARY:
+==973==     in use at exit: 24 bytes in 3 blocks
+==973==   total heap usage: 107 allocs, 104 frees, 82,373 bytes allocated
+==973==
+==973== 8 bytes in 1 blocks are definitely lost in loss record 1 of 3
+==973==    at 0x4846FA3: operator new(unsigned long)
+==973==    by 0x10B5D7: Box::Box(...) (Box.cpp:8)
+==973==    by 0x10FF6A: main (main.cpp:91)
+==973==
+==973== 8 bytes in 1 blocks are definitely lost in loss record 2 of 3
+==973==    at 0x4846FA3: operator new(unsigned long)
+==973==    by 0x10C994: InWarehouseState::loadOntoTruck(Box&) (BoxState.cpp:7)
+==973==    by 0x10B7AF: Box::loadOntoTruck() (Box.cpp:19)
+==973==    ...
+==973==
+==973== 8 bytes in 1 blocks are definitely lost in loss record 3 of 3
+==973==    at 0x4846FA3: operator new(unsigned long)
+==973==    by 0x10CD0A: InTransitState::arriveAtCustoms(Box&) (BoxState.cpp:21)
+==973==    by 0x10B7E9: Box::arriveAtCustoms() (Box.cpp:20)
+==973==    ...
+==973==
+==973== LEAK SUMMARY:
+==973==    definitely lost: 24 bytes in 3 blocks
+```
+
+Three `BoxState` objects (8 bytes each, a single vtable pointer, no other members), exactly matching the three transitions `BX-1001` makes in Scenario 1 (`InWarehouse -> InTransit -> CustomsClearance -> Delivered`). Each stack trace points at a `new` inside a `BoxState::loadOntoTruck`/`arriveAtCustoms` override or the `Box` constructor: every state object that was ever replaced leaked, while the final `DeliveredState` (never replaced, cleaned up by `~Box()`) did not.
+
+### Cause: found with GDB
+
+Valgrind shows where memory was allocated, not why it was never freed, so GDB was used on `Box::setState` to watch the pointer swap happen live:
+
+```
+(gdb) break Box::setState
+(gdb) run
+Breakpoint 1, Box::setState (this=0x5555555774b0, newState=0x555555577850) at Box.cpp:26
+26          state_ = newState;
+(gdb) print state_
+$1 = (BoxState *) 0x555555577530
+(gdb) print state_->name()
+$2 = "InWarehouse"
+(gdb) print newState->name()
+$4 = "InTransit"
+(gdb) next
+27      }
+(gdb) print state_
+$5 = (BoxState *) 0x555555577850
+(gdb) continue
+Breakpoint 1, Box::setState (this=0x5555555774b0, newState=0x555555577cc0) at Box.cpp:26
+(gdb) print state_
+$7 = (BoxState *) 0x555555577850
+(gdb) print state_->name()
+$8 = "InTransit"
+(gdb) print newState->name()
+$9 = "CustomsClearance"
+```
+
+Root cause: at the moment `setState` is entered, `state_` (for example `0x555555577530`, `InWarehouseState`) is a live, heap-allocated object with no other pointer referencing it anywhere in the program. The very next line overwrites that pointer with `newState`. No `delete` occurs between reading the old value and discarding it, so `0x555555577530` becomes unreachable the instant `state_ = newState;` executes, confirmed twice in a row across two consecutive transitions.
+
+### Correction
+
+```cpp
+// fixed version
+void Box::setState(BoxState* newState) {
+    delete state_;
+    state_ = newState;
+}
+```
+
+```
+==1024== HEAP SUMMARY:
+==1024==     in use at exit: 0 bytes in 0 blocks
+==1024==   total heap usage: 107 allocs, 107 frees, 82,373 bytes allocated
+==1024==
+==1024== All heap blocks were freed -- no leaks are possible
+==1024== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)
+```
+
+`stdout` was diffed against the pre-fix run and is byte-for-byte identical, confirming the fix changes only ownership behaviour, not program logic.
+
+---
+
+## Valgrind evidence for the final application
+
+```
+valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./taskforge
+```
+
+```
+==903== HEAP SUMMARY:
+==903==     in use at exit: 0 bytes in 0 blocks
+==903==   total heap usage: 107 allocs, 107 frees, 82,373 bytes allocated
+==903==
+==903== All heap blocks were freed -- no leaks are possible
+==903==
+==903== For lists of detected and suppressed errors, rerun with: -s
+==903== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)
+```
+
+Zero errors, zero leaks of any kind, and every one of the 107 allocations made across both demo scenarios is paired with exactly one `delete`, consistent with the single-owner policy described in README section 3.

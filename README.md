@@ -20,6 +20,33 @@ A typical memory check, once inside the supplied Docker environment:
 valgrind --leak-check=full --show-leak-kinds=all ./taskforge
 ```
 
+### Running in Docker
+
+The `Dockerfile` in this directory provides everything needed to compile,
+run, and investigate the system (`g++`, `make`, `gdb`, `valgrind`) without
+installing anything locally.
+
+Build the image:
+
+```
+sudo docker build -t taskforge .
+```
+
+Run the program directly:
+
+```
+sudo docker run -it taskforge
+```
+
+Or drop into a shell inside the container to use GDB/Valgrind interactively
+(the image builds `./taskforge` automatically, so it's ready to debug):
+
+```
+sudo docker run -it taskforge bash
+gdb ./taskforge
+valgrind --leak-check=full --show-leak-kinds=all ./taskforge
+```
+
 Ownership is managed manually with raw pointers. Every class that owns
 something defines an explicit destructor that deletes it, and disables
 copying (`= delete` on the copy constructor and copy assignment operator) so
